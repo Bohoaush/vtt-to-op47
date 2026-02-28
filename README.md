@@ -50,6 +50,11 @@ Env (optional): `HTTP_PORT`, `CASPAR_HOST`, `CASPAR_PORT`, `CASPAR_CHANNEL_LAYER
 </vanc>
 ```
 
+# Standards (teletext / subtitles)
+
+- **OP-47** (VANC teletext) follows **ETS 300 706** (Enhanced Teletext) and **ITU-R BT.653** (System B). Packet X/26 enhancement data and row encoding are per ETS 300 706.
+- **EN 300 743** is the DVB subtitling standard (DVB-SUB, PES in MPEG-2); it is a different delivery system, not used for OP-47 VANC.
+
 # Demo on VANC in caspar
 
 This repo contains everything you need to send OP47 and SCTE104 vanc payload to a casparcg server

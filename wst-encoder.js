@@ -6,6 +6,18 @@ import X26Encoder from "./x26-encoder.js";
 
 const spaces = n => Array(n).fill(' ').join('');
 
+/** Czech diacritical → base letter. Row must stay 7-bit (0x20–0x7F) so decoder shows a, c, r not weird glyphs. */
+const CZECH_TO_BASE = new Map([
+  ["á", "a"], ["č", "c"], ["ď", "d"], ["é", "e"], ["ě", "e"], ["í", "i"], ["ň", "n"], ["ó", "o"],
+  ["ř", "r"], ["š", "s"], ["ť", "t"], ["ú", "u"], ["ů", "u"], ["ý", "y"], ["ž", "z"],
+  ["Á", "A"], ["Č", "C"], ["Ď", "D"], ["É", "E"], ["Ě", "E"], ["Í", "I"], ["Ň", "N"], ["Ó", "O"],
+  ["Ř", "R"], ["Š", "S"], ["Ť", "T"], ["Ú", "U"], ["Ů", "U"], ["Ý", "Y"], ["Ž", "Z"]
+]);
+
+function toBaseLetters(str) {
+  return Array.from(str, c => CZECH_TO_BASE.get(c) ?? (c.codePointAt(0) <= 0x7F ? c : "?")).join("");
+}
+
 export default class WSTEncoder {
 
   #magazine = 0;  // valid values are 0-7, where 0 is interpreted as 8
@@ -13,12 +25,29 @@ export default class WSTEncoder {
   #startRow; // valid values are 0-31
   #doubleHeight; // valid values are true or false
 
-  constructor({ startRow = 19, doubleHeight = false, magazine = 0, page = 0x01 } = {}) {
+  #diacriticsEncoding = "x26";
+  #x26Opts = {};
+
+  /** @param {Object} opts
+   *  @param {"latin2"|"x26"} [opts.diacriticsEncoding="x26"] - "x26": Czech via packet 26; "latin2": base letters only
+   *  @param {"g2"|"compose"} [opts.caronEncoding="compose"] - caron: "compose" = base + diacritic index 15; "g2" = precomposed G2
+   *  @param {number} [opts.caronDiacriticIndex=15] - when caronEncoding="compose", G2 col 4 index for caron (this decoder: 15)
+   *  @param {"default"|"alt1"|"alt2"|"iso88592"} [opts.g2Variant="default"] - when caronEncoding="g2", which G2 code set
+   */
+  constructor({ startRow = 19, doubleHeight = false, magazine = 0, page = 0x01, diacriticsEncoding = "x26", caronEncoding, caronDiacriticIndex, g2Variant } = {}) {
     this.#magazine = magazine;
     this.#page = page;
     this.#startRow = startRow;
     this.#doubleHeight = doubleHeight;
-  };
+    this.#diacriticsEncoding = diacriticsEncoding;
+    const env = typeof process !== "undefined" && process.env ? process.env : {};
+    const cEnc = caronEncoding ?? (env.CARON_ENCODING === "compose" || env.CARON_ENCODING === "g2" ? env.CARON_ENCODING : undefined);
+    const cIdx = caronDiacriticIndex ?? (env.CARON_DIACRITIC_INDEX != null ? parseInt(env.CARON_DIACRITIC_INDEX, 10) : undefined);
+    const g2 = g2Variant ?? (env.G2_VARIANT && ["default", "alt1", "alt2", "iso88592"].includes(env.G2_VARIANT) ? env.G2_VARIANT : undefined);
+    if (cEnc != null) this.#x26Opts.caronEncoding = cEnc;
+    if (cIdx != null && !Number.isNaN(cIdx)) this.#x26Opts.caronDiacriticIndex = cIdx;
+    if (g2 != null) this.#x26Opts.g2Variant = g2;
+  }
 
   #encodePrefix(magazine, packet) {
     
@@ -107,29 +136,32 @@ export default class WSTEncoder {
    * @param {string[]} rows The rows of text to display
    */
   #encodeDisplayRows(startRow, rows) {
-    // apply character encoding
+    if (this.#diacriticsEncoding === "latin2") {
+      const textEncoder = new TextEncoder();
+      return rows.map((text, i) => {
+        const prefix = this.#encodePrefix(this.#magazine, startRow + i);
+        const boxedText = `\x0b\x0b${text}\x0a\x0a${spaces(40 - text.length)}`.substring(0, 40);
+        const baseStr = toBaseLetters(boxedText);
+        const textBytes = textEncoder.encode(baseStr);
+        const payload = applyParity(textBytes);
+        return Uint8Array.from([...prefix, ...payload]);
+      });
+    }
     const textEncoder = new TextEncoder();
-    const x26encoder = new X26Encoder();
-
+    const x26encoder = new X26Encoder(this.#x26Opts);
     const rowPackets = rows.map((text, i) => {
       const prefix = this.#encodePrefix(this.#magazine, startRow + i);
-
-      // encode text by padding to 40 chars, applying x26 ehancements and parity
-      const boxedText = `\x0b\x0b${text}\x0a\x0a${spaces(40-text.length)}`.substring(0, 40);
+      const boxedText = `\x0b\x0b${text}\x0a\x0a${spaces(40 - text.length)}`.substring(0, 40);
       const textData = x26encoder.encodeRow(boxedText, startRow + i);
       const textBytes = textEncoder.encode(textData);
       const payload = applyParity(textBytes);
-
       return Uint8Array.from([...prefix, ...payload]);
     });
-
-    // create full x26 packets for all enhancements
     const enhancementPackets = x26encoder.enhancementPackets.map((enhancement) => {
       const prefix = this.#encodePrefix(this.#magazine, 26);
       return Uint8Array.from([...prefix, ...enhancement]);
     });
-
-    // return enhanmentment packets first, according to best practices
+    // Send enhancement packets first so decoder has diacritic data before row content
     return [...enhancementPackets, ...rowPackets];
   }
 }

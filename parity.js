@@ -79,9 +79,10 @@ const OddParityTable127 = (function () {
   return table;
 })();
 
+/** Apply odd parity to byte(s). Uses lower 7 bits as data; bit 7 is set for odd parity. Safe for bytes 0-255. */
 export function applyParity(data) {
   if (data instanceof Uint8Array || Array.isArray(data)) {
-    return data.map((value) => OddParityTable127[value]);
+    return data.map((value) => OddParityTable127[value & 0x7f]);
   }
-  return OddParityTable127[data];
+  return OddParityTable127[data & 0x7f];
 }
