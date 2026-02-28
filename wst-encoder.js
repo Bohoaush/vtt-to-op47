@@ -109,7 +109,6 @@ export default class WSTEncoder {
 
   /**
    * TODO: Add support for double height
-   * TODO: Add support for horizontal alignment
    * @param {number} startLine 
    * @param {string[]} rows 
    * @returns 
@@ -132,6 +131,19 @@ export default class WSTEncoder {
   }
 
   /**
+   * Build a 40-char row with text centered. Uses box control bytes 0x0b 0x0b before and 0x0a 0x0a after the text.
+   * @param {string} text
+   * @returns {string}
+   */
+  #centerRow(text) {
+    const boxLen = 4 + text.length; // \x0b\x0b + text + \x0a\x0a
+    const pad = Math.max(0, 40 - boxLen);
+    const left = Math.floor(pad / 2);
+    const right = pad - left;
+    return `${spaces(left)}\x0b\x0b${text}\x0a\x0a${spaces(right)}`.substring(0, 40);
+  }
+
+  /**
    * @param {number} startRow On which row to start displaying the text
    * @param {string[]} rows The rows of text to display
    */
@@ -140,7 +152,7 @@ export default class WSTEncoder {
       const textEncoder = new TextEncoder();
       return rows.map((text, i) => {
         const prefix = this.#encodePrefix(this.#magazine, startRow + i);
-        const boxedText = `\x0b\x0b${text}\x0a\x0a${spaces(40 - text.length)}`.substring(0, 40);
+        const boxedText = this.#centerRow(text);
         const baseStr = toBaseLetters(boxedText);
         const textBytes = textEncoder.encode(baseStr);
         const payload = applyParity(textBytes);
@@ -151,7 +163,7 @@ export default class WSTEncoder {
     const x26encoder = new X26Encoder(this.#x26Opts);
     const rowPackets = rows.map((text, i) => {
       const prefix = this.#encodePrefix(this.#magazine, startRow + i);
-      const boxedText = `\x0b\x0b${text}\x0a\x0a${spaces(40 - text.length)}`.substring(0, 40);
+      const boxedText = this.#centerRow(text);
       const textData = x26encoder.encodeRow(boxedText, startRow + i);
       const textBytes = textEncoder.encode(textData);
       const payload = applyParity(textBytes);

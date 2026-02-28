@@ -1,10 +1,11 @@
 /**
- * Converts VTT cues into display segments for WST (2 lines max, 40 chars per line).
- * Long cues are split into multiple segments with duration proportional to text length.
+ * Converts VTT cues into display segments for WST (2 lines max per segment).
+ * Use a safe line length (38) so the end of each line is visible; display may cut off 1–2 chars at 40.
  */
 
-const CHARS_PER_LINE = 40;
 const MAX_LINES = 2;
+/** Safe chars per line so end 2 chars in line are not cut off. */
+const CHARS_PER_LINE = 38;
 const CHARS_PER_SLIDE = CHARS_PER_LINE * MAX_LINES;
 
 /**
