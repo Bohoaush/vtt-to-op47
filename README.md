@@ -29,7 +29,7 @@ curl -X DELETE http://localhost:8080/titling/stop
 
 Implemented functionality:
 - Subtitles are shown/hidden based on play time from OSC or manualy set with the autonomous mod.
-- On end of each title, if the next title is more than 2s, the title is cleared for the pause.
+- On end of each title, if the next title is in more than 2s, the title is cleared for the pause.
 - Text too long to be encoded is split into parts which will be displayed for durations proportional to their character count.
 
 Run: `npm run titling` or `node vtt-titling-server.js`
@@ -38,7 +38,7 @@ Env (optional): `HTTP_PORT`, `CASPAR_HOST`, `CASPAR_PORT`, `CASPAR_CHANNEL_LAYER
 
 ## The casparcg server
 
-1. Using the branch `https://github.com/nxtedition/casparcg/tree/wintv-vanc`
+1. Using the branch [https://github.com/nxtedition/casparcg/tree/fix/decklink-vanc-parity](https://github.com/nxtedition/casparcg/tree/fix/decklink-vanc-parity)
 2. Add the following to your decklink config in casparcg.config
 
 ```xml
