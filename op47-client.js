@@ -4,7 +4,7 @@ import { Buffer } from 'node:buffer';
 import WSTEncoder from './wst-encoder.js';
 
 const encoder = new WSTEncoder();
-const res = encoder.encodeSubtitle(['Niklas was here', 'Making another row that is longer']);
+const res = encoder.encodeSubtitle(['Loď čeří kýlem tůň', 'obzvlášť v Grónské úžině.']);
 const payload = res.map(data => Buffer.from(data).toString('base64')).join(' ');
 console.log('Encoded payload:', payload);
 
@@ -14,7 +14,7 @@ client.setEncoding('utf8');
 client.connect({
   host: 'localhost',
   family: 4, // Use IPv4  
-  port:5255
+  port:5250
 });
 
 client.on('connect',function(){

@@ -1,0 +1,14 @@
+WEBVTT
+
+00:00:01.000 --> 00:00:05.000
+First subtitle line.
+
+00:00:06.000 --> 00:00:10.000
+Another cue with two lines of text
+that fit in 40 characters each.
+
+00:00:12.000 --> 00:00:14.000
+Short.
+
+00:00:20.000 --> 00:00:25.000
+This one is long enough that it might need to be wrapped into two lines for display.

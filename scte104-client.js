@@ -36,7 +36,7 @@ client.setEncoding('utf8');
 client.connect({
   host: 'localhost',
   family: 4, // Use IPv4  
-  port:5255
+  port:5250
 });
 
 
