@@ -8,6 +8,10 @@ import { createOSCTimeSource } from './osc-time-source.js';
 const GAP_BEFORE_CLEAR_S = 2;
 const TICK_MS = 100;
 const HTTP_PORT = (parseInt(process.env.HTTP_PORT, 10) || 8080);
+const SUBTITLE_ROOT = process.env.SUBTITLE_ROOT || '';
+const MEDIA_ROOT = process.env.MEDIA_ROOT || '';
+const SUBTITLE_ROOT_NORM = SUBTITLE_ROOT.replace(/[\\/]+$/, '');
+const MEDIA_ROOT_NORM = MEDIA_ROOT.replace(/[\\/]+$/, '');
 
 /** @type {{ start: number, end: number, lines: string[] }[]} */
 let segments = [];
@@ -29,8 +33,84 @@ const caspar = new CasparClient({
 
 const oscTime = createOSCTimeSource({
   port: parseInt(process.env.OSC_PORT, 10) || 6250,
-  timeAddress: process.env.OSC_TIME_ADDRESS || '/channel/1/stage/layer/1/foreground/file/time',
 });
+
+/**
+ * Map a media file path (from OSC) to a candidate VTT subtitle path.
+ * Example:
+ *   MEDIA_ROOT=/mnt/Video
+ *   SUBTITLE_ROOT=/mnt/s1/video
+ *   media: /mnt/Video/SeriesXY/SeriesXY_S01E01.MXF
+ *   -> /mnt/s1/video/SeriesXY/subtitles/SeriesXY_S01E01.vtt
+ *
+ * Must also work with deeper paths:
+ *   media: /mnt/Video/SeriesXY/S01/SeriesXY_S01E01.MXF
+ *   -> /mnt/s1/video/SeriesXY/S01/subtitles/SeriesXY_S01E01.vtt
+ */
+function mapMediaPathToVtt(mediaPath) {
+  if (!SUBTITLE_ROOT_NORM || !MEDIA_ROOT_NORM) return null;
+  if (typeof mediaPath !== 'string' || !mediaPath) return null;
+  const normPath = mediaPath.replace(/\\/g, '/');
+  const normMediaRoot = MEDIA_ROOT_NORM.replace(/\\/g, '/');
+  if (!normPath.startsWith(normMediaRoot)) return null;
+
+  let rel = normPath.slice(normMediaRoot.length);
+  if (rel.startsWith('/')) rel = rel.slice(1);
+
+  const parts = rel.split('/').filter(Boolean);
+  if (parts.length < 1) return null;
+  const filename = parts[parts.length - 1];
+  const base = filename.replace(/\.[^.]+$/, '');
+  if (!base) return null;
+  const relDir = parts.slice(0, -1).join('/');
+  const dirPart = relDir ? `/${relDir}` : '';
+  return `${SUBTITLE_ROOT_NORM}${dirPart}/subtitles/${base}.vtt`;
+}
+
+let lastAutoVttPath = null;
+let currentVttPath = null;
+let currentVttIsAuto = false;
+
+// Listen for file changes from OSC and auto-load subtitles when a matching VTT exists.
+if (typeof oscTime.onFileChange === 'function') {
+  oscTime.onFileChange(async (mediaPath) => {
+    const vttPath = mapMediaPathToVtt(mediaPath);
+    if (!vttPath) {
+      // Media moved outside MEDIA_ROOT or mapping disabled.
+      if (currentVttIsAuto) {
+        stopTitling();
+        lastAutoVttPath = null;
+        currentVttPath = null;
+        currentVttIsAuto = false;
+        console.log('[AutoTitling] Stopped titling (no mapping for media)', mediaPath);
+      }
+      return;
+    }
+    if (vttPath === lastAutoVttPath) return;
+    try {
+      await fs.access(vttPath);
+    } catch {
+      // No matching subtitles for this file.
+      if (currentVttIsAuto) {
+        stopTitling();
+        lastAutoVttPath = null;
+        currentVttPath = null;
+        currentVttIsAuto = false;
+        console.log('[AutoTitling] Stopped titling (no subtitles for media)', mediaPath);
+      }
+      return;
+    }
+    try {
+      const result = await loadVTT(vttPath, { timeMode: 'osc' });
+      lastAutoVttPath = vttPath;
+      currentVttPath = vttPath;
+      currentVttIsAuto = true;
+      console.log('[AutoTitling] Loaded subtitles from', vttPath, 'for media', mediaPath, '- cues:', result.cues);
+    } catch (err) {
+      console.error('[AutoTitling] Failed to load subtitles for', mediaPath, 'from', vttPath, '-', err.message);
+    }
+  });
+}
 
 function startTitling() {
   if (tickTimer) return;
@@ -44,6 +124,8 @@ function stopTitling() {
   }
   lastShownSegmentIndex = -1;
   caspar.clearTitle();
+  currentVttPath = null;
+  currentVttIsAuto = false;
 }
 
 function getCurrentTime() {
@@ -110,6 +192,8 @@ async function loadVTT(vttPath, options = {}) {
   }
 
   startTitling();
+  currentVttPath = vttPath;
+  currentVttIsAuto = false;
   return { cues: cues.length, segments: segments.length, timeMode, startAt: timeMode === 'autonomous' ? autonomousStartAt : undefined };
 }
 

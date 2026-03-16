@@ -34,17 +34,40 @@ Implemented functionality:
 
 Run: `npm run titling` or `node vtt-titling-server.js`
 
-Env (optional): `HTTP_PORT`, `CASPAR_HOST`, `CASPAR_PORT`, `CASPAR_CHANNEL_LAYER`, `OSC_PORT`, `OSC_TIME_ADDRESS`
+Env (optional): `HTTP_PORT`, `CASPAR_HOST`, `CASPAR_PORT`, `CASPAR_CHANNEL_LAYER`, `OSC_PORT`, `OSC_TIME_ADDRESS`, `OSC_FILE_ADDRESS`, `OSC_CHANNEL`, `OSC_LAYER`, `MEDIA_ROOT`, `SUBTITLE_ROOT`
+
+`OSC_TIME_ADDRESS` lets you specify the full OSC address to read time from.  
+If `OSC_TIME_ADDRESS` is not set, the OSC time source defaults to `/channel/<channel>/stage/layer/<layer>/foreground/file/time`, where `<channel>` and `<layer>` come from `OSC_CHANNEL` / `OSC_LAYER` (or fall back to `1` if unset).
+
+`OSC_FILE_ADDRESS` lets you specify the OSC address that carries the current foreground file path.  
+If `OSC_FILE_ADDRESS` is not set, it defaults to `/channel/<channel>/stage/layer/<layer>/foreground/file/path` for the same channel/layer as time.
+
+`MEDIA_ROOT` and `SUBTITLE_ROOT` enable **automatic titling from OSC file paths**:
+
+- The media path from OSC must start with `MEDIA_ROOT`.  
+- That prefix is replaced with `SUBTITLE_ROOT`, the rest of the path is kept, and a `subtitles` directory plus `.vtt` extension are added.
+- Example:  
+  - `MEDIA_ROOT=/mnt/Video`  
+  - `SUBTITLE_ROOT=/mnt/s1/video`  
+  - Media path from OSC: `/mnt/Video/SeriesXY/S01/SeriesXY_S01E01.MXF`  
+  - Auto VTT path: `/mnt/s1/video/SeriesXY/S01/subtitles/SeriesXY_S01E01.vtt`
+
+When a matching `.vtt` file exists at the computed path, the server will:
+
+- Automatically load that VTT and start titling in `timeMode: "osc"` driven by OSC time.
+- Switch to a new VTT when the OSC file path changes to another media file with matching subtitles.
+- Stop titling (and clear the title) when the OSC file path changes to a media file that has no matching subtitles or no mapping under `MEDIA_ROOT`.
 
 ## The casparcg server
 
-1. Using the branch [https://github.com/nxtedition/casparcg/tree/fix/decklink-vanc-parity](https://github.com/nxtedition/casparcg/tree/fix/decklink-vanc-parity)
+1. Using the branch [https://github.com/Bohoaush/caspar_server_fix/tree/vanc-seek-master](https://github.com/Bohoaush/caspar_server_fix/tree/vanc-seek-master)
 2. Add the following to your decklink config in casparcg.config
 
 ```xml
 <vanc>
     <op47-line>12</op47-line>
     <op47-line-field2>575</op47-line-field2>
+    <op42-sd-line>21</op42-sd-line>
     <op47-dummy-header>VVUnFRXq6v0v6pteFSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg</op47-dummy-header>
     <scte104-line>13</scte104-line>
 </vanc>
@@ -53,7 +76,6 @@ Env (optional): `HTTP_PORT`, `CASPAR_HOST`, `CASPAR_PORT`, `CASPAR_CHANNEL_LAYER
 # Standards (teletext / subtitles)
 
 - **OP-47** (VANC teletext) follows **ETS 300 706** (Enhanced Teletext) and **ITU-R BT.653** (System B). Packet X/26 enhancement data and row encoding are per ETS 300 706.
-- **EN 300 743** is the DVB subtitling standard (DVB-SUB, PES in MPEG-2); it is a different delivery system, not used for OP-47 VANC.
 
 # Demo on VANC in caspar
 
