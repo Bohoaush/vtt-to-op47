@@ -4,6 +4,7 @@ import { parseVTT } from './vtt-parser.js';
 import { cuesToSegments } from './titling-engine.js';
 import { CasparClient } from './caspar-client.js';
 import { createOSCTimeSource } from './osc-time-source.js';
+import { createAirboxWatcher } from './pollABOX.js';
 
 const GAP_BEFORE_CLEAR_S = 2;
 const TICK_MS = 100;
@@ -34,6 +35,8 @@ const caspar = new CasparClient({
 const oscTime = createOSCTimeSource({
   port: parseInt(process.env.OSC_PORT, 10) || 6250,
 });
+
+const AUTO_SOURCE = process.env.AUTO_SOURCE || 'osc'; // "osc" (default) or "airbox"
 
 /**
  * Map a media file path (from OSC) to a candidate VTT subtitle path.
@@ -71,44 +74,80 @@ let lastAutoVttPath = null;
 let currentVttPath = null;
 let currentVttIsAuto = false;
 
-// Listen for file changes from OSC and auto-load subtitles when a matching VTT exists.
-if (typeof oscTime.onFileChange === 'function') {
+/**
+ * Common auto-titling logic for both OSC and AirBOX sources.
+ *
+ * @param {string} mediaPath
+ * @param {{ timeMode: 'osc' | 'autonomous', startAt?: number }} options
+ */
+async function handleAutoTitlingForMedia(mediaPath, options) {
+  const vttPath = mapMediaPathToVtt(mediaPath);
+  if (!vttPath) {
+    if (currentVttIsAuto) {
+      stopTitling();
+      lastAutoVttPath = null;
+      currentVttPath = null;
+      currentVttIsAuto = false;
+      console.log('[AutoTitling] Stopped titling (no mapping for media)', mediaPath);
+    }
+    return;
+  }
+  if (vttPath === lastAutoVttPath) return;
+  try {
+    await fs.access(vttPath);
+  } catch {
+    if (currentVttIsAuto) {
+      stopTitling();
+      lastAutoVttPath = null;
+      currentVttPath = null;
+      currentVttIsAuto = false;
+      console.log('[AutoTitling] Stopped titling (no subtitles for media)', mediaPath);
+    }
+    return;
+  }
+  try {
+    const result = await loadVTT(vttPath, {
+      timeMode: options.timeMode,
+      startAt: typeof options.startAt === 'number' ? options.startAt : undefined,
+    });
+    lastAutoVttPath = vttPath;
+    currentVttPath = vttPath;
+    currentVttIsAuto = true;
+    console.log(
+      '[AutoTitling] Loaded subtitles from',
+      vttPath,
+      'for media',
+      mediaPath,
+      '- timeMode:',
+      result.timeMode,
+      'startAt:',
+      result.startAt,
+      'cues:',
+      result.cues
+    );
+  } catch (err) {
+    console.error('[AutoTitling] Failed to load subtitles for', mediaPath, 'from', vttPath, '-', err.message);
+  }
+}
+
+let airboxWatcher = null;
+
+// Auto titling from OSC file path
+if (AUTO_SOURCE === 'osc' && typeof oscTime.onFileChange === 'function') {
   oscTime.onFileChange(async (mediaPath) => {
-    const vttPath = mapMediaPathToVtt(mediaPath);
-    if (!vttPath) {
-      // Media moved outside MEDIA_ROOT or mapping disabled.
-      if (currentVttIsAuto) {
-        stopTitling();
-        lastAutoVttPath = null;
-        currentVttPath = null;
-        currentVttIsAuto = false;
-        console.log('[AutoTitling] Stopped titling (no mapping for media)', mediaPath);
-      }
-      return;
-    }
-    if (vttPath === lastAutoVttPath) return;
-    try {
-      await fs.access(vttPath);
-    } catch {
-      // No matching subtitles for this file.
-      if (currentVttIsAuto) {
-        stopTitling();
-        lastAutoVttPath = null;
-        currentVttPath = null;
-        currentVttIsAuto = false;
-        console.log('[AutoTitling] Stopped titling (no subtitles for media)', mediaPath);
-      }
-      return;
-    }
-    try {
-      const result = await loadVTT(vttPath, { timeMode: 'osc' });
-      lastAutoVttPath = vttPath;
-      currentVttPath = vttPath;
-      currentVttIsAuto = true;
-      console.log('[AutoTitling] Loaded subtitles from', vttPath, 'for media', mediaPath, '- cues:', result.cues);
-    } catch (err) {
-      console.error('[AutoTitling] Failed to load subtitles for', mediaPath, 'from', vttPath, '-', err.message);
-    }
+    await handleAutoTitlingForMedia(mediaPath, { timeMode: 'osc' });
+  });
+}
+
+// Auto titling from AirBOX via pollABOX (autonomous timing)
+if (AUTO_SOURCE === 'airbox') {
+  airboxWatcher = createAirboxWatcher();
+  airboxWatcher.onFileChange(async ({ mediaPath, elapsed }) => {
+    const startAt = typeof elapsed === 'number' && Number.isFinite(elapsed) ? elapsed : 0;
+    await handleAutoTitlingForMedia(mediaPath, {
+      timeMode: 'autonomous',
+      startAt,
+    });
   });
 }
 
@@ -260,6 +299,7 @@ server.listen(HTTP_PORT, () => {
 process.on('SIGINT', () => {
   stopTitling();
   oscTime.close();
+  if (airboxWatcher) airboxWatcher.stop();
   caspar.disconnect();
   server.close();
   process.exit(0);
